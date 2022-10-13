@@ -3,20 +3,24 @@ import numpy as np
 import math
 from scipy import signal
 from scipy.ndimage import gaussian_filter
+import cv2
+import SetUpImages
 # import matplotlib.pyplot as plt
 
-def MakeGaussianPyramid(image, scale, minsize):
-  pyramid = [];
+TEMPLATE_SIZE = 15
+
+def makeGaussianPyramid(image, scale, minsize):
+  pyramid = []
   im = Image.open(image)
   mode = im.mode
-  return MakeGaussianPyramidHelper(im, scale, minsize, pyramid, mode)
+  return makeGaussianPyramidHelper(im, scale, minsize, pyramid, mode)
 
-def MakeGaussianPyramidHelper(im, scale, minsize, pyramid, mode) :
+def makeGaussianPyramidHelper(im, scale, minsize, pyramid, mode) :
   height, width = im.size
   im_array = np.asarray(im, dtype = np.float64)
   pyramid.append(im_array)
   if (height * scale <= minsize and width * scale <= minsize):
-    return pyramid;
+    return pyramid
   im_array2 = im_array.copy()
   output_array = im_array.copy()
   if mode is "L":
@@ -28,9 +32,9 @@ def MakeGaussianPyramidHelper(im, scale, minsize, pyramid, mode) :
   height, width = filtered_im.size
   nextImage = filtered_im.resize((int(height * scale), int(width * scale)), Image.BICUBIC)
   nextImage = nextImage.convert(mode)
-  return MakeGaussianPyramidHelper(nextImage, scale, minsize, pyramid, mode)
+  return makeGaussianPyramidHelper(nextImage, scale, minsize, pyramid, mode)
 
-def ShowGaussianPyramid(pyramid):
+def showGaussianPyramid(pyramid):
   numPics = len(pyramid)
   image1_array = pyramid[0]
   width = image1_array.shape[1]
@@ -51,16 +55,14 @@ def ShowGaussianPyramid(pyramid):
   background.save("image.png", "PNG")
   return background
 
-def resizeTemplate(template, width):
-  it = Image.open(template)
-  mode = it.mode
-  orig_height, orig_width = it.size
+def resizeImage(template, width):
+  orig_height, orig_width = template.size
   scale = width/orig_width
   height = orig_height * scale
-  it_array = np.asarray(it, dtype = np.float64)
+  it_array = np.asarray(template, dtype = np.float64)
   it_array2 = it_array.copy()
-  if mode is "L":
-    output_array = gaussian_filter(it_array2, 1/(2*scale))
+  output_array = it_array.copy()
+  output_array = gaussian_filter(it_array2, 1/(2*scale))
   filtered_it = Image.fromarray(output_array.astype('uint8'))
   new_template = filtered_it.resize((int(height), int(width)), Image.BICUBIC)
   return new_template
@@ -68,6 +70,7 @@ def resizeTemplate(template, width):
 def drawAt(image, col, row, height, width):
   if image.mode is "L":
     image.convert("RGB")
+    # print(image.mode)
   draw = ImageDraw.Draw(image)
   radiusH = height/2
   radiusW = width/2
@@ -147,12 +150,13 @@ def normxcorr2D(image, template):
 
 
 
-def FindTemplate(pyramid, template, threshold):
+def detectFace(pyramid, template, threshold):
   orig_im_array = pyramid[0]
   orig_im_array2 = orig_im_array.copy()
-  template_width = 15
+  face_locations = []
   # adjust template size
-  new_template = resizeTemplate(template, template_width)
+  template_im = Image.open(template)
+  new_template = resizeImage(template_im, TEMPLATE_SIZE)
   orig_im = Image.fromarray(pyramid[0].astype('uint8'))
   orig_im2 = orig_im.copy()
   template2 = new_template.copy()
@@ -162,7 +166,7 @@ def FindTemplate(pyramid, template, threshold):
     # load image from pyramid
     im = Image.fromarray(image_array.astype('uint8'))
     # calculate ncc array of the image
-    ncc_array = ncc.normxcorr2D(im, template2)
+    ncc_array = normxcorr2D(im, template2)
     im_width, im_height = im.size
     scale = orig_height / im_height
     nccBin_array = ncc_array > threshold
@@ -172,8 +176,69 @@ def FindTemplate(pyramid, template, threshold):
         if ncc_array[row, col] > threshold:
           newRow = int(row * scale)
           newCol = int(col * scale)
+          face_locations.append((newRow, newCol, scale))
           drawAt(orig_im2, newCol, newRow,
                  t_height * scale, t_width * scale)
   image = Image.fromarray(orig_im_array2, "RGB")
   orig_im2.save("faceDetection.png", "PNG")
-  return orig_im2
+  # return orig_im2
+  return face_locations
+
+def swapFace(orig_image, face_locations, face):
+  orig_im_array = np.asarray(orig_image, dtype = 'uint8')
+  output_im_array = orig_im_array.copy()
+  face_array = np.asarray(face, dtype = 'uint8')
+  for face_loc in face_locations:
+    output_im_array = swapFaceHelper(face_loc, output_im_array, face_array)
+  output_im = Image.fromarray(output_im_array.astype('uint8'))
+  return output_im
+
+def swapFace(orig_image, face_locations, face, index):
+  im = Image.open(orig_image)
+  orig_im_array = np.asarray(im, dtype = 'uint8')
+  output_im_array = orig_im_array.copy()
+  face_im = Image.open(face)
+  # face_im = resizeImage(face_im, TEMPLATE_SIZE)
+  # face_array = np.asarray(face_im, dtype = 'uint8')
+  output_im_array = swapFaceHelper(face_locations[index], output_im_array, face_im)
+  output_im = Image.fromarray(output_im_array.astype('uint8'))
+  output_im.save("swappedImage.png", "PNG")
+  return output_im
+
+
+def swapFaceHelper(face_loc, output_im_array, face_im):
+  row = face_loc[0]
+  col = face_loc[1]
+  scale = face_loc[2]
+  print(f"this is scale: {scale}")
+  width, height = face_im.size
+  print(f"this is width&height: {face_im.size}")
+  width_to_reach = TEMPLATE_SIZE * scale
+  newscale = width_to_reach/width
+  height_to_reach = height * newscale
+  print(f"this is height to reach: {height_to_reach}")
+
+  face_array = np.asarray(face_im, dtype = np.float64)
+  face_array2 = face_array.copy()
+  output_array = face_array.copy()
+  output_array = gaussian_filter(face_array2, 1/(2*scale))
+  filtered_face = Image.fromarray(output_array.astype('uint8'))
+  new_face_im = filtered_face.resize((int(width_to_reach), int(height_to_reach)), Image.BICUBIC)
+
+  face_array = np.asarray(new_face_im, dtype = 'uint8')
+  print(f"this is face height: {height}")
+  radiusW = math.floor(width_to_reach/2)
+  radiusH = math.floor(height_to_reach/2)
+  for x in range(0, int(height_to_reach)):
+    for y in range(0, int(width_to_reach)):
+      output_im_array[x + row - radiusH, y + col - radiusW] = face_array[x, y]
+  return output_im_array
+
+def faceSwap(image, template, face):
+  if SetUpImages.setUpImages(image, template, face):
+    pyramid = makeGaussianPyramid('b&wImage.png', 0.75, 50)
+    face_locs = detectFace(pyramid, 'b&wTemplate.png', 0.9)
+    swapFace('b&wImage.png', face_locs, 'b&wFace.png', 0)
+    SetUpImages.smoothImage('swappedImage.png', 2)
+
+faceSwap('girl.jpg', 'template_girl.png', 'face_to_change.png')
