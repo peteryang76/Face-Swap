@@ -199,7 +199,6 @@ def detectFace(pyramid, template, threshold):
     # load image from pyramid
     im = Image.fromarray(image_array.astype('uint8'))
     # calculate ncc array of the image
-    # ncc_array = normxcorr2D(im, template2)
     ncc_array = ncorr(im, template2)
     im_width, im_height = im.size
     scale = orig_height / im_height
