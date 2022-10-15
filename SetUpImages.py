@@ -6,15 +6,15 @@ def setUpImages(image, template, face):
     event = threading.Event()
     im = Image.open(image)
     im.convert("L")
-    event.wait(20)
+    # event.wait(20)
     im.save("b&wImage.png", "PNG")
     temp_im = Image.open(template)
     temp_im.convert("L")
-    event.wait(10)
+    # event.wait(10)
     temp_im.save("b&wTemplate.png", "PNG")
     face_im = Image.open(face)
     face_im.convert("L")
-    event.wait(10)
+    # event.wait(10)
     face_im.save("b&wface.png", "PNG")
     return True
 
